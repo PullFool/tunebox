@@ -193,8 +193,16 @@ class MainActivity : AppCompatActivity() {
     override fun onBackPressed() {
         if (npBinding.root.visibility == View.VISIBLE) {
             hideNowPlaying()
-        } else {
-            super.onBackPressed()
+            return
         }
+
+        // Handle WebView back navigation
+        val currentFragment = supportFragmentManager.findFragmentById(R.id.fragmentContainer)
+        if (currentFragment is YouTubeSearchFragment && currentFragment.canGoBack()) {
+            currentFragment.goBack()
+            return
+        }
+
+        super.onBackPressed()
     }
 }

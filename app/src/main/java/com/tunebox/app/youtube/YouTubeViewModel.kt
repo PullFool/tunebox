@@ -14,12 +14,6 @@ class YouTubeViewModel(application: Application) : AndroidViewModel(application)
     private val downloader = YouTubeDownloader(application)
     private val songDao = (application as TuneboxApp).database.songDao()
 
-    private val _searchResults = MutableLiveData<List<YouTubeResult>>()
-    val searchResults: LiveData<List<YouTubeResult>> = _searchResults
-
-    private val _isSearching = MutableLiveData(false)
-    val isSearching: LiveData<Boolean> = _isSearching
-
     private val _downloadProgress = MutableLiveData<Pair<String, Float>?>()
     val downloadProgress: LiveData<Pair<String, Float>?> = _downloadProgress
 
@@ -29,32 +23,20 @@ class YouTubeViewModel(application: Application) : AndroidViewModel(application)
     private val _error = MutableLiveData<String?>()
     val error: LiveData<String?> = _error
 
-    fun search(query: String) {
-        if (query.isBlank()) return
+    private var isDownloading = false
 
-        viewModelScope.launch {
-            _isSearching.value = true
-            _error.value = null
-            try {
-                val results = downloader.search(query)
-                _searchResults.value = results
-                if (results.isEmpty()) {
-                    _error.value = "No results found"
-                }
-            } catch (e: Exception) {
-                _error.value = "Search failed: ${e.message}"
-            } finally {
-                _isSearching.value = false
-            }
+    fun download(videoUrl: String) {
+        if (isDownloading) {
+            _error.value = "A download is already in progress"
+            return
         }
-    }
 
-    fun download(result: YouTubeResult) {
         viewModelScope.launch {
-            _downloadProgress.value = Pair(result.title, 0f)
+            isDownloading = true
+            _downloadProgress.value = Pair("Preparing...", 0f)
             try {
-                val song = downloader.download(result.url) { progress, _ ->
-                    _downloadProgress.postValue(Pair(result.title, progress))
+                val song = downloader.download(videoUrl) { progress, status ->
+                    _downloadProgress.postValue(Pair(status, progress))
                 }
 
                 if (song != null) {
@@ -66,6 +48,7 @@ class YouTubeViewModel(application: Application) : AndroidViewModel(application)
             } catch (e: Exception) {
                 _error.postValue("Download error: ${e.message}")
             } finally {
+                isDownloading = false
                 _downloadProgress.postValue(null)
             }
         }
