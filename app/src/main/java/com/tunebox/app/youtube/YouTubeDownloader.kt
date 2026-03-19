@@ -13,133 +13,119 @@ import java.io.File
 class YouTubeDownloader(private val context: Context) {
 
     private val downloadDir: File by lazy {
-        // Use app-specific directory (no extra permissions needed)
         File(context.getExternalFilesDir(null), "Music").also { it.mkdirs() }
     }
+
+    private val app get() = context.applicationContext as TuneboxApp
 
     suspend fun download(
         videoUrl: String,
         onProgress: (Float, String) -> Unit = { _, _ -> }
     ): Song? = withContext(Dispatchers.IO) {
+        // Wait for yt-dlp to be ready
+        if (!app.isYtDlpReady) {
+            onProgress(0f, "Initializing yt-dlp...")
+
+            // If there was an error, retry
+            if (app.ytDlpError != null) {
+                app.retryInit()
+            }
+
+            var waited = 0
+            while (!app.isYtDlpReady && app.ytDlpError == null && waited < 30) {
+                Thread.sleep(1000)
+                waited++
+                onProgress(0f, "Initializing yt-dlp... (${waited}s)")
+            }
+
+            if (!app.isYtDlpReady) {
+                val error = app.ytDlpError ?: "Timed out waiting for yt-dlp"
+                throw Exception(error)
+            }
+        }
+
+        val cleanUrl = cleanVideoUrl(videoUrl)
+        Log.d("YTDownloader", "Downloading: $cleanUrl")
+
+        var title = "Unknown"
+        var artist = "Unknown"
+
+        // Get video info
         try {
-            // Check if yt-dlp is ready
-            if (!(context.applicationContext as TuneboxApp).isYtDlpReady) {
-                onProgress(0f, "Waiting for yt-dlp to initialize...")
-                // Wait up to 15 seconds for init
-                var waited = 0
-                while (!(context.applicationContext as TuneboxApp).isYtDlpReady && waited < 15) {
-                    Thread.sleep(1000)
-                    waited++
-                }
-                if (!(context.applicationContext as TuneboxApp).isYtDlpReady) {
-                    throw Exception("yt-dlp failed to initialize. Please restart the app.")
-                }
+            onProgress(0f, "Getting video info...")
+            val infoRequest = YoutubeDLRequest(cleanUrl)
+            infoRequest.addOption("--no-download")
+            infoRequest.addOption("-j")
+            val infoResponse = YoutubeDL.getInstance().execute(infoRequest)
+            infoResponse.out?.let { output ->
+                try {
+                    val json = org.json.JSONObject(output.trim())
+                    title = json.optString("title", "Unknown")
+                    artist = json.optString("channel", json.optString("uploader", "Unknown"))
+                } catch (_: Exception) {}
             }
-
-            Log.d("YTDownloader", "Starting download: $videoUrl")
-            Log.d("YTDownloader", "Download dir: ${downloadDir.absolutePath}")
-
-            // Clean the URL (remove extra params from WebView)
-            val cleanUrl = cleanVideoUrl(videoUrl)
-            Log.d("YTDownloader", "Clean URL: $cleanUrl")
-
-            var title = "Unknown"
-            var artist = "Unknown"
-
-            // Get video info first
-            try {
-                onProgress(0f, "Getting video info...")
-                val infoRequest = YoutubeDLRequest(cleanUrl)
-                infoRequest.addOption("--no-download")
-                infoRequest.addOption("--print", "%(title)s|||%(channel)s")
-                val infoResponse = YoutubeDL.getInstance().execute(infoRequest)
-                infoResponse.out?.let { output ->
-                    val parts = output.trim().split("|||")
-                    if (parts.isNotEmpty()) title = parts[0].trim()
-                    if (parts.size > 1) artist = parts[1].trim()
-                }
-                Log.d("YTDownloader", "Video info: $title by $artist")
-            } catch (e: Exception) {
-                Log.w("YTDownloader", "Info fetch failed: ${e.message}")
-            }
-
-            // Download as audio
-            onProgress(5f, "Downloading...")
-            val request = YoutubeDLRequest(cleanUrl)
-            request.addOption("-x")
-            request.addOption("--audio-format", "mp3")
-            request.addOption("--audio-quality", "0")
-            request.addOption("-o", "${downloadDir.absolutePath}/%(title)s.%(ext)s")
-            request.addOption("--no-playlist")
-            request.addOption("--no-mtime")
-            // Skip thumbnail embedding (can cause failures)
-            // request.addOption("--embed-thumbnail")
-
-            val response = YoutubeDL.getInstance().execute(request) { progress, _, line ->
-                Log.d("YTDownloader", "Progress: $progress - $line")
-                onProgress(progress, line ?: "Downloading...")
-            }
-
-            Log.d("YTDownloader", "Download stdout: ${response.out}")
-            Log.d("YTDownloader", "Download stderr: ${response.err}")
-
-            // Find the downloaded file (most recently modified mp3)
-            val mp3File = downloadDir.listFiles()
-                ?.filter { it.extension == "mp3" }
-                ?.maxByOrNull { it.lastModified() }
-
-            if (mp3File != null) {
-                Log.d("YTDownloader", "Found file: ${mp3File.absolutePath} (${mp3File.length()} bytes)")
-                Song(
-                    title = title,
-                    artist = artist,
-                    filePath = mp3File.absolutePath,
-                    source = Song.SOURCE_YOUTUBE,
-                    duration = 0
-                )
-            } else {
-                // Maybe it saved as a different format, check all audio files
-                val anyAudio = downloadDir.listFiles()
-                    ?.filter { it.extension in listOf("mp3", "m4a", "webm", "opus", "ogg") }
-                    ?.maxByOrNull { it.lastModified() }
-
-                if (anyAudio != null) {
-                    Log.d("YTDownloader", "Found non-mp3: ${anyAudio.absolutePath}")
-                    Song(
-                        title = title,
-                        artist = artist,
-                        filePath = anyAudio.absolutePath,
-                        source = Song.SOURCE_YOUTUBE,
-                        duration = 0
-                    )
-                } else {
-                    Log.e("YTDownloader", "No audio file found in ${downloadDir.absolutePath}")
-                    Log.e("YTDownloader", "Files in dir: ${downloadDir.listFiles()?.map { it.name }}")
-                    null
-                }
-            }
+            Log.d("YTDownloader", "Info: $title by $artist")
         } catch (e: Exception) {
-            Log.e("YTDownloader", "Download failed: ${e.message}", e)
-            throw e  // Re-throw so ViewModel can show the actual error message
+            Log.w("YTDownloader", "Info failed (continuing): ${e.message}")
+        }
+
+        // Download audio
+        onProgress(5f, "Downloading audio...")
+        val request = YoutubeDLRequest(cleanUrl)
+        request.addOption("-f", "bestaudio[ext=m4a]/bestaudio/best")
+        request.addOption("-x")
+        request.addOption("--audio-format", "mp3")
+        request.addOption("--audio-quality", "0")
+        request.addOption("-o", "${downloadDir.absolutePath}/%(id)s.%(ext)s")
+        request.addOption("--no-playlist")
+        request.addOption("--no-mtime")
+        request.addOption("--no-part")
+
+        try {
+            val response = YoutubeDL.getInstance().execute(request) { progress, _, line ->
+                Log.d("YTDownloader", "Progress: $progress% - $line")
+                onProgress(progress, "Downloading: ${progress.toInt()}%")
+            }
+            Log.d("YTDownloader", "Stdout: ${response.out?.take(500)}")
+            Log.d("YTDownloader", "Stderr: ${response.err?.take(500)}")
+        } catch (e: Exception) {
+            Log.e("YTDownloader", "Execute failed: ${e.message}", e)
+            throw Exception("Download failed: ${e.message}")
+        }
+
+        // Find downloaded file
+        val audioFile = downloadDir.listFiles()
+            ?.filter { it.extension in listOf("mp3", "m4a", "webm", "opus", "ogg", "wav") }
+            ?.maxByOrNull { it.lastModified() }
+
+        if (audioFile != null && audioFile.length() > 0) {
+            Log.d("YTDownloader", "Success: ${audioFile.name} (${audioFile.length()} bytes)")
+            Song(
+                title = title,
+                artist = artist,
+                filePath = audioFile.absolutePath,
+                source = Song.SOURCE_YOUTUBE,
+                duration = 0
+            )
+        } else {
+            val files = downloadDir.listFiles()?.map { "${it.name} (${it.length()})" }
+            Log.e("YTDownloader", "No audio found. Files: $files")
+            throw Exception("No audio file was created. The video may be restricted.")
         }
     }
 
     private fun cleanVideoUrl(url: String): String {
-        // Extract video ID and build clean URL
         val patterns = listOf(
             Regex("[?&]v=([a-zA-Z0-9_-]{11})"),
             Regex("youtu\\.be/([a-zA-Z0-9_-]{11})"),
             Regex("shorts/([a-zA-Z0-9_-]{11})")
         )
-
         for (pattern in patterns) {
             val match = pattern.find(url)
             if (match != null) {
-                val videoId = match.groupValues[1]
-                return "https://www.youtube.com/watch?v=$videoId"
+                return "https://www.youtube.com/watch?v=${match.groupValues[1]}"
             }
         }
-
         return url
     }
 }
