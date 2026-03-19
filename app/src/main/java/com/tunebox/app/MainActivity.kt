@@ -11,6 +11,7 @@ import androidx.fragment.app.Fragment
 import androidx.media3.common.Player
 import com.bumptech.glide.Glide
 import com.tunebox.app.databinding.ActivityMainBinding
+import com.tunebox.app.databinding.LayoutNowPlayingBinding
 import com.tunebox.app.local.LocalMusicFragment
 import com.tunebox.app.player.PlayerViewModel
 import com.tunebox.app.playlist.PlaylistFragment
@@ -21,6 +22,7 @@ import com.tunebox.app.youtube.YouTubeSearchFragment
 class MainActivity : AppCompatActivity() {
 
     private lateinit var binding: ActivityMainBinding
+    private lateinit var npBinding: LayoutNowPlayingBinding
     private val playerViewModel: PlayerViewModel by viewModels()
     private var isUserSeeking = false
 
@@ -38,6 +40,7 @@ class MainActivity : AppCompatActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         binding = ActivityMainBinding.inflate(layoutInflater)
+        npBinding = binding.nowPlayingView
         setContentView(binding.root)
 
         setupBottomNavigation()
@@ -100,7 +103,7 @@ class MainActivity : AppCompatActivity() {
             binding.miniPlayerPlayPause.setImageResource(
                 if (playing) R.drawable.ic_pause else R.drawable.ic_play
             )
-            binding.npBtnPlayPause.setImageResource(
+            npBinding.npBtnPlayPause.setImageResource(
                 if (playing) R.drawable.ic_pause else R.drawable.ic_play
             )
         }
@@ -114,60 +117,60 @@ class MainActivity : AppCompatActivity() {
 
         pm.currentSong.observe(this) { song ->
             song?.let {
-                binding.npTitle.text = it.title
-                binding.npArtist.text = it.artist
+                npBinding.npTitle.text = it.title
+                npBinding.npArtist.text = it.artist
 
                 Glide.with(this)
                     .load(it.albumArtUri)
                     .placeholder(R.drawable.ic_music_note)
-                    .into(binding.npAlbumArt)
+                    .into(npBinding.npAlbumArt)
             }
         }
 
         pm.currentPosition.observe(this) { position ->
             if (!isUserSeeking) {
-                binding.npSeekBar.progress = position.toInt()
-                binding.npCurrentTime.text = TimeUtils.formatDuration(position)
+                npBinding.npSeekBar.progress = position.toInt()
+                npBinding.npCurrentTime.text = TimeUtils.formatDuration(position)
             }
         }
 
         pm.duration.observe(this) { duration ->
-            binding.npSeekBar.max = duration.toInt()
-            binding.npTotalTime.text = TimeUtils.formatDuration(duration)
+            npBinding.npSeekBar.max = duration.toInt()
+            npBinding.npTotalTime.text = TimeUtils.formatDuration(duration)
         }
 
         pm.shuffleEnabled.observe(this) { enabled ->
-            binding.npBtnShuffle.alpha = if (enabled) 1.0f else 0.5f
+            npBinding.npBtnShuffle.alpha = if (enabled) 1.0f else 0.5f
         }
 
         pm.repeatMode.observe(this) { mode ->
             when (mode) {
                 Player.REPEAT_MODE_OFF -> {
-                    binding.npBtnRepeat.setImageResource(R.drawable.ic_repeat)
-                    binding.npBtnRepeat.alpha = 0.5f
+                    npBinding.npBtnRepeat.setImageResource(R.drawable.ic_repeat)
+                    npBinding.npBtnRepeat.alpha = 0.5f
                 }
                 Player.REPEAT_MODE_ALL -> {
-                    binding.npBtnRepeat.setImageResource(R.drawable.ic_repeat)
-                    binding.npBtnRepeat.alpha = 1.0f
+                    npBinding.npBtnRepeat.setImageResource(R.drawable.ic_repeat)
+                    npBinding.npBtnRepeat.alpha = 1.0f
                 }
                 Player.REPEAT_MODE_ONE -> {
-                    binding.npBtnRepeat.setImageResource(R.drawable.ic_repeat_one)
-                    binding.npBtnRepeat.alpha = 1.0f
+                    npBinding.npBtnRepeat.setImageResource(R.drawable.ic_repeat_one)
+                    npBinding.npBtnRepeat.alpha = 1.0f
                 }
             }
         }
 
-        binding.npBtnPlayPause.setOnClickListener { pm.togglePlayPause() }
-        binding.npBtnNext.setOnClickListener { pm.skipNext() }
-        binding.npBtnPrev.setOnClickListener { pm.skipPrevious() }
-        binding.npBtnShuffle.setOnClickListener { pm.toggleShuffle() }
-        binding.npBtnRepeat.setOnClickListener { pm.toggleRepeat() }
-        binding.npBtnCollapse.setOnClickListener { hideNowPlaying() }
+        npBinding.npBtnPlayPause.setOnClickListener { pm.togglePlayPause() }
+        npBinding.npBtnNext.setOnClickListener { pm.skipNext() }
+        npBinding.npBtnPrev.setOnClickListener { pm.skipPrevious() }
+        npBinding.npBtnShuffle.setOnClickListener { pm.toggleShuffle() }
+        npBinding.npBtnRepeat.setOnClickListener { pm.toggleRepeat() }
+        npBinding.npBtnCollapse.setOnClickListener { hideNowPlaying() }
 
-        binding.npSeekBar.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
+        npBinding.npSeekBar.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
             override fun onProgressChanged(seekBar: SeekBar?, progress: Int, fromUser: Boolean) {
                 if (fromUser) {
-                    binding.npCurrentTime.text = TimeUtils.formatDuration(progress.toLong())
+                    npBinding.npCurrentTime.text = TimeUtils.formatDuration(progress.toLong())
                 }
             }
             override fun onStartTrackingTouch(seekBar: SeekBar?) { isUserSeeking = true }
@@ -179,16 +182,16 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun showNowPlaying() {
-        binding.nowPlayingView.visibility = View.VISIBLE
+        npBinding.root.visibility = View.VISIBLE
     }
 
     private fun hideNowPlaying() {
-        binding.nowPlayingView.visibility = View.GONE
+        npBinding.root.visibility = View.GONE
     }
 
     @Deprecated("Deprecated in Java")
     override fun onBackPressed() {
-        if (binding.nowPlayingView.visibility == View.VISIBLE) {
+        if (npBinding.root.visibility == View.VISIBLE) {
             hideNowPlaying()
         } else {
             super.onBackPressed()
