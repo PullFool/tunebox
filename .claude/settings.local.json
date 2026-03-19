@@ -1,0 +1,22 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(for dir:*)",
+      "Bash(do)",
+      "Bash(cp /c/xampp/htdocs/spotipy/app/src/main/res/mipmap-anydpi-v26/ic_launcher.xml /c/xampp/htdocs/spotipy/app/src/main/res/$dir/ic_launcher.xml)",
+      "Bash(cp /c/xampp/htdocs/spotipy/app/src/main/res/mipmap-anydpi-v26/ic_launcher_round.xml /c/xampp/htdocs/spotipy/app/src/main/res/$dir/ic_launcher_round.xml)",
+      "Bash(done)",
+      "Bash(./gradlew --stop)",
+      "Bash(gradle --stop)",
+      "Bash(taskkill //F //IM java.exe)",
+      "Bash(git init:*)",
+      "Bash(gh auth:*)",
+      "Bash(git add:*)",
+      "Bash(git commit:*)"
+    ],
+    "additionalDirectories": [
+      "C:\\Users\\Adrian\\.gradle\\caches\\8.13\\transforms\\",
+      "C:\\Users\\Adrian\\.gradle\\caches\\8.13\\"
+    ]
+  }
+}
