@@ -2,6 +2,8 @@ package com.tunebox.app.youtube
 
 import android.annotation.SuppressLint
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
@@ -20,6 +22,21 @@ class YouTubeSearchFragment : Fragment() {
     private val binding get() = _binding!!
     private val viewModel: YouTubeViewModel by viewModels()
     private var currentVideoUrl: String? = null
+    private val handler = Handler(Looper.getMainLooper())
+    private var lastCheckedUrl: String? = null
+
+    // Poll the WebView URL every second to detect SPA navigation
+    private val urlChecker = object : Runnable {
+        override fun run() {
+            if (_binding == null) return
+            val url = binding.webView.url
+            if (url != null && url != lastCheckedUrl) {
+                lastCheckedUrl = url
+                updateDownloadButton(url)
+            }
+            handler.postDelayed(this, 1000)
+        }
+    }
 
     override fun onCreateView(
         inflater: LayoutInflater,
@@ -39,6 +56,7 @@ class YouTubeSearchFragment : Fragment() {
         observeViewModel()
 
         binding.webView.loadUrl("https://m.youtube.com")
+        handler.post(urlChecker)
     }
 
     @SuppressLint("SetJavaScriptEnabled")
@@ -55,11 +73,22 @@ class YouTubeSearchFragment : Fragment() {
                     view: WebView?,
                     request: WebResourceRequest?
                 ): Boolean {
+                    val url = request?.url?.toString() ?: return false
+                    updateDownloadButton(url)
                     return false
                 }
 
                 override fun onPageFinished(view: WebView?, url: String?) {
                     super.onPageFinished(view, url)
+                    updateDownloadButton(url)
+                }
+
+                override fun doUpdateVisitedHistory(
+                    view: WebView?,
+                    url: String?,
+                    isReload: Boolean
+                ) {
+                    super.doUpdateVisitedHistory(view, url, isReload)
                     updateDownloadButton(url)
                 }
             }
@@ -73,20 +102,20 @@ class YouTubeSearchFragment : Fragment() {
                     } else {
                         binding.progressBar.visibility = View.GONE
                     }
+                    // Also check URL during page load
+                    view?.url?.let { updateDownloadButton(it) }
                 }
             }
         }
     }
 
     private fun updateDownloadButton(url: String?) {
-        if (_binding == null || url == null) {
-            currentVideoUrl = null
-            return
-        }
+        if (_binding == null || url == null) return
 
         val isVideoPage = url.contains("youtube.com/watch") ||
                 url.contains("youtu.be/") ||
-                url.contains("youtube.com/shorts/")
+                url.contains("youtube.com/shorts/") ||
+                url.contains("/watch?")
 
         if (isVideoPage) {
             currentVideoUrl = url
@@ -141,6 +170,7 @@ class YouTubeSearchFragment : Fragment() {
     }
 
     override fun onDestroyView() {
+        handler.removeCallbacks(urlChecker)
         _binding?.webView?.destroy()
         super.onDestroyView()
         _binding = null
