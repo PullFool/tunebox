@@ -70,9 +70,8 @@ dependencies {
     ksp("com.github.bumptech.glide:ksp:4.16.0")
 
     // YouTube downloader (yt-dlp wrapper)
-    implementation("com.github.yausername.youtubedl-android:library:0.17.2")
-    implementation("com.github.yausername.youtubedl-android:ffmpeg:0.17.2")
-    implementation("com.github.yausername.youtubedl-android:aria2c:0.17.2")
+    implementation("com.github.yausername.youtubedl-android:library:0.16.0")
+    implementation("com.github.yausername.youtubedl-android:ffmpeg:0.16.0")
 
     // Coroutines
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.7.3")
