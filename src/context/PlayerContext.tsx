@@ -1,128 +1,106 @@
 import React, {
-  createContext,
-  useContext,
-  useState,
-  useCallback,
-  useEffect,
-  useRef,
+  createContext, useContext, useState, useCallback, useEffect, useRef,
 } from 'react';
-import TrackPlayer, {
-  Capability,
-  State,
-  usePlaybackState,
-  useProgress,
-  Event,
-} from 'react-native-track-player';
+import Sound from 'react-native-sound';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+
+Sound.setCategory('Playback');
 
 const PlayerContext = createContext<any>(null);
 export const usePlayer = () => useContext(PlayerContext);
 
-let isSetup = false;
-
-async function setupPlayer() {
-  if (isSetup) return;
-  try {
-    await TrackPlayer.setupPlayer();
-    await TrackPlayer.updateOptions({
-      capabilities: [
-        Capability.Play,
-        Capability.Pause,
-        Capability.SkipToNext,
-        Capability.SkipToPrevious,
-        Capability.SeekTo,
-      ],
-    });
-    isSetup = true;
-  } catch (e) {
-    console.log('Player setup error:', e);
-  }
-}
-
 export function PlayerProvider({children}: {children: React.ReactNode}) {
   const [songs, setSongs] = useState<any[]>([]);
   const [currentIndex, setCurrentIndex] = useState(-1);
+  const [isPlaying, setIsPlaying] = useState(false);
+  const [currentTime, setCurrentTime] = useState(0);
+  const [duration, setDuration] = useState(0);
   const [shuffle, setShuffle] = useState(false);
   const [repeat, setRepeat] = useState(0);
   const [showNowPlaying, setShowNowPlaying] = useState(false);
   const [playlists, setPlaylists] = useState<any[]>([]);
   const [library, setLibrary] = useState<any[]>([]);
-  const [isPlaying, setIsPlaying] = useState(false);
-  const [currentTime, setCurrentTime] = useState(0);
-  const [duration, setDuration] = useState(0);
 
-  const currentSong =
-    currentIndex >= 0 && currentIndex < songs.length
-      ? songs[currentIndex]
-      : null;
+  const soundRef = useRef<Sound | null>(null);
+  const intervalRef = useRef<any>(null);
 
-  // Setup
+  const currentSong = currentIndex >= 0 && currentIndex < songs.length ? songs[currentIndex] : null;
+
   useEffect(() => {
-    setupPlayer();
     AsyncStorage.getItem('tunebox_playlists').then(data => {
       if (data) setPlaylists(JSON.parse(data));
     });
   }, []);
 
-  // Save playlists
   useEffect(() => {
     AsyncStorage.setItem('tunebox_playlists', JSON.stringify(playlists));
   }, [playlists]);
 
-  // Track progress polling
-  useEffect(() => {
-    const interval = setInterval(async () => {
-      try {
-        const pos = await TrackPlayer.getPosition();
-        const dur = await TrackPlayer.getDuration();
-        const state = await TrackPlayer.getState();
-        setCurrentTime(pos);
-        setDuration(dur);
-        setIsPlaying(state === State.Playing);
-      } catch {}
-    }, 500);
-    return () => clearInterval(interval);
+  const stopTracking = useCallback(() => {
+    if (intervalRef.current) { clearInterval(intervalRef.current); intervalRef.current = null; }
   }, []);
 
-  const playSong = useCallback(
-    async (songList: any[], index: number) => {
-      setSongs(songList);
-      setCurrentIndex(index);
-      const song = songList[index];
-      if (!song) return;
-
-      try {
-        await TrackPlayer.reset();
-        await TrackPlayer.add({
-          id: song.id,
-          url: song.url,
-          title: song.title,
-          artist: song.artist || 'Unknown',
-          artwork: song.cover || undefined,
-        });
-        await TrackPlayer.play();
-
-        setLibrary(prev => {
-          if (prev.find(s => s.id === song.id)) return prev;
-          return [...prev, song];
-        });
-      } catch (e) {
-        console.error('Play error:', e);
+  const startTracking = useCallback(() => {
+    stopTracking();
+    intervalRef.current = setInterval(() => {
+      if (soundRef.current && soundRef.current.isLoaded()) {
+        soundRef.current.getCurrentTime(sec => setCurrentTime(sec));
       }
-    },
-    [],
-  );
+    }, 500);
+  }, [stopTracking]);
 
-  const togglePlayPause = useCallback(async () => {
-    const state = await TrackPlayer.getState();
-    if (state === State.Playing) {
-      await TrackPlayer.pause();
-    } else {
-      await TrackPlayer.play();
+  const playSong = useCallback(async (songList: any[], index: number) => {
+    setSongs(songList);
+    setCurrentIndex(index);
+    const song = songList[index];
+    if (!song) return;
+
+    // Stop previous
+    if (soundRef.current) {
+      soundRef.current.stop();
+      soundRef.current.release();
+      soundRef.current = null;
     }
-  }, []);
+    stopTracking();
 
-  const skipNext = useCallback(async () => {
+    const sound = new Sound(song.url, '', (error) => {
+      if (error) {
+        console.error('Sound load error:', error);
+        return;
+      }
+      setDuration(sound.getDuration());
+      sound.play((success) => {
+        if (success) {
+          // Finished playing
+          if (repeat === 2) {
+            sound.setCurrentTime(0);
+            sound.play();
+          }
+        }
+      });
+      setIsPlaying(true);
+      startTracking();
+    });
+    soundRef.current = sound;
+
+    setLibrary(prev => {
+      if (prev.find(s => s.id === song.id)) return prev;
+      return [...prev, song];
+    });
+  }, [repeat, startTracking, stopTracking]);
+
+  const togglePlayPause = useCallback(() => {
+    if (!soundRef.current) return;
+    if (isPlaying) {
+      soundRef.current.pause();
+      setIsPlaying(false);
+    } else {
+      soundRef.current.play();
+      setIsPlaying(true);
+    }
+  }, [isPlaying]);
+
+  const skipNext = useCallback(() => {
     if (songs.length === 0) return;
     let next;
     if (shuffle) {
@@ -131,90 +109,65 @@ export function PlayerProvider({children}: {children: React.ReactNode}) {
       next = (currentIndex + 1) % songs.length;
       if (next === 0 && repeat === 0) return;
     }
-    await playSong(songs, next);
+    playSong(songs, next);
   }, [songs, currentIndex, shuffle, repeat, playSong]);
 
-  const skipPrev = useCallback(async () => {
+  const skipPrev = useCallback(() => {
     if (songs.length === 0) return;
-    if (currentTime > 3) {
-      await TrackPlayer.seekTo(0);
+    if (currentTime > 3 && soundRef.current) {
+      soundRef.current.setCurrentTime(0);
       return;
     }
     const prev = (currentIndex - 1 + songs.length) % songs.length;
-    await playSong(songs, prev);
+    playSong(songs, prev);
   }, [songs, currentIndex, currentTime, playSong]);
 
-  const seekTo = useCallback(async (time: number) => {
-    await TrackPlayer.seekTo(time);
+  const seekTo = useCallback((time: number) => {
+    if (soundRef.current) {
+      soundRef.current.setCurrentTime(time);
+    }
   }, []);
 
   const toggleShuffle = useCallback(() => setShuffle(s => !s), []);
   const toggleRepeat = useCallback(() => setRepeat(r => (r + 1) % 3), []);
 
   const createPlaylist = useCallback((name: string) => {
-    const p = {id: Date.now(), name, songs: []};
+    const p = {id: Date.now(), name, songs: [] as any[]};
     setPlaylists(prev => [...prev, p]);
     return p;
   }, []);
 
   const addToPlaylist = useCallback((playlistId: number, song: any) => {
-    setPlaylists(prev =>
-      prev.map(p => {
-        if (p.id === playlistId) {
-          if (p.songs.find((s: any) => s.url === song.url)) return p;
-          return {...p, songs: [...p.songs, song]};
-        }
-        return p;
-      }),
-    );
+    setPlaylists(prev => prev.map(p => {
+      if (p.id === playlistId) {
+        if (p.songs.find((s: any) => s.url === song.url)) return p;
+        return {...p, songs: [...p.songs, song]};
+      }
+      return p;
+    }));
   }, []);
 
-  const removeFromPlaylist = useCallback(
-    (playlistId: number, songUrl: string) => {
-      setPlaylists(prev =>
-        prev.map(p => {
-          if (p.id === playlistId) {
-            return {...p, songs: p.songs.filter((s: any) => s.url !== songUrl)};
-          }
-          return p;
-        }),
-      );
-    },
-    [],
-  );
+  const removeFromPlaylist = useCallback((playlistId: number, songUrl: string) => {
+    setPlaylists(prev => prev.map(p => {
+      if (p.id === playlistId) {
+        return {...p, songs: p.songs.filter((s: any) => s.url !== songUrl)};
+      }
+      return p;
+    }));
+  }, []);
 
   const deletePlaylist = useCallback((id: number) => {
     setPlaylists(prev => prev.filter(p => p.id !== id));
   }, []);
 
   return (
-    <PlayerContext.Provider
-      value={{
-        songs,
-        currentSong,
-        currentIndex,
-        isPlaying,
-        currentTime,
-        duration,
-        shuffle,
-        repeat,
-        showNowPlaying,
-        playlists,
-        library,
-        playSong,
-        togglePlayPause,
-        skipNext,
-        skipPrev,
-        seekTo,
-        toggleShuffle,
-        toggleRepeat,
-        setShowNowPlaying,
-        createPlaylist,
-        addToPlaylist,
-        removeFromPlaylist,
-        deletePlaylist,
-        setSongs,
-      }}>
+    <PlayerContext.Provider value={{
+      songs, currentSong, currentIndex, isPlaying, currentTime, duration,
+      shuffle, repeat, showNowPlaying, playlists, library,
+      playSong, togglePlayPause, skipNext, skipPrev, seekTo,
+      toggleShuffle, toggleRepeat, setShowNowPlaying,
+      createPlaylist, addToPlaylist, removeFromPlaylist, deletePlaylist, setSongs,
+    }}>
       {children}
     </PlayerContext.Provider>
   );
