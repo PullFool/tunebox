@@ -1,40 +1,12 @@
-import React, { useState, useRef, useCallback, useEffect } from 'react';
+import React, { useState, useRef, useCallback } from 'react';
 import { usePlayer } from '../context/PlayerContext';
-import { IoCloudUpload, IoMusicalNotes, IoPlay, IoAdd, IoRefresh } from 'react-icons/io5';
-
-const API_BASE = '/tunebox/api';
+import { IoCloudUpload, IoMusicalNotes, IoPlay, IoAdd } from 'react-icons/io5';
 
 function LocalMusic() {
   const { playSong, currentSong, isPlaying, playlists, addToPlaylist } = usePlayer();
   const [localSongs, setLocalSongs] = useState([]);
-  const [downloadedSongs, setDownloadedSongs] = useState([]);
   const [showPlaylistMenu, setShowPlaylistMenu] = useState(null);
-  const [loading, setLoading] = useState(true);
   const fileInputRef = useRef();
-
-  // Load downloaded songs from server
-  const loadLibrary = useCallback(async () => {
-    try {
-      const res = await fetch(`${API_BASE}/library.php`);
-      const data = await res.json();
-      if (data.songs) {
-        setDownloadedSongs(data.songs.map(s => ({
-          ...s,
-          url: `/tunebox/${s.file}`,
-          cover: null,
-          source: 'youtube',
-        })));
-      }
-    } catch (e) {
-      console.error('Failed to load library:', e);
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    loadLibrary();
-  }, [loadLibrary]);
 
   const handleFiles = useCallback((files) => {
     const audioFiles = Array.from(files).filter(f =>
@@ -60,20 +32,9 @@ function LocalMusic() {
 
   const handleDragOver = (e) => e.preventDefault();
 
-  const allSongs = [...localSongs, ...downloadedSongs];
-
   return (
     <div className="page">
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 24 }}>
-        <h1 className="page-title" style={{ marginBottom: 0 }}>My Music</h1>
-        <button
-          onClick={loadLibrary}
-          style={{ background: 'none', border: 'none', color: 'var(--text-secondary)', cursor: 'pointer', fontSize: 20, padding: 8 }}
-          title="Refresh library"
-        >
-          <IoRefresh />
-        </button>
-      </div>
+      <h1 className="page-title">My Music</h1>
 
       <div
         className="upload-area"
@@ -82,7 +43,7 @@ function LocalMusic() {
         onDragOver={handleDragOver}
       >
         <IoCloudUpload className="icon" />
-        <p>Drop music files here or click to upload</p>
+        <p>Tap to add music files</p>
         <p className="hint">Supports MP3, M4A, WAV, OGG, FLAC</p>
         <input
           ref={fileInputRef}
@@ -94,29 +55,23 @@ function LocalMusic() {
         />
       </div>
 
-      {loading ? (
-        <div className="empty-state">
-          <p>Loading library...</p>
-        </div>
-      ) : allSongs.length === 0 ? (
+      {localSongs.length === 0 ? (
         <div className="empty-state">
           <IoMusicalNotes className="icon" />
           <h3>No music yet</h3>
-          <p>Upload files or download from YouTube</p>
+          <p>Add music files or stream from YouTube</p>
         </div>
       ) : (
         <>
-          {downloadedSongs.length > 0 && (
-            <p style={{ color: 'var(--text-secondary)', fontSize: 13, marginBottom: 12 }}>
-              {allSongs.length} song{allSongs.length !== 1 ? 's' : ''}
-            </p>
-          )}
+          <p style={{ color: 'var(--text-secondary)', fontSize: 13, marginBottom: 12 }}>
+            {localSongs.length} song{localSongs.length !== 1 ? 's' : ''}
+          </p>
           <ul className="song-list">
-            {allSongs.map((song, index) => (
+            {localSongs.map((song, index) => (
               <li
                 key={song.id}
                 className={`song-item ${currentSong?.url === song.url ? 'active' : ''}`}
-                onClick={() => playSong(allSongs, index)}
+                onClick={() => playSong(localSongs, index)}
               >
                 <span className="song-item-number">
                   {currentSong?.url === song.url && isPlaying ? (
@@ -126,11 +81,7 @@ function LocalMusic() {
                   )}
                 </span>
                 <div className="song-item-art">
-                  {song.cover ? (
-                    <img src={song.cover} alt="" />
-                  ) : (
-                    <IoMusicalNotes className="icon" />
-                  )}
+                  <IoMusicalNotes className="icon" />
                 </div>
                 <div className="song-item-info">
                   <div className="song-item-title">{song.title}</div>

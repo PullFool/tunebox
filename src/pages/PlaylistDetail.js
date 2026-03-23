@@ -1,45 +1,16 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { usePlayer } from '../context/PlayerContext';
 import { IoArrowBack, IoPlay, IoMusicalNotes, IoTrash, IoAdd, IoCheckmark, IoSearch } from 'react-icons/io5';
 
-const API_BASE = '/tunebox/api';
-
 function PlaylistDetail() {
   const { id } = useParams();
   const navigate = useNavigate();
-  const { playlists, playSong, currentSong, isPlaying, removeFromPlaylist, addToPlaylist } = usePlayer();
+  const { playlists, playSong, currentSong, isPlaying, removeFromPlaylist, addToPlaylist, library } = usePlayer();
   const [showAddModal, setShowAddModal] = useState(false);
-  const [librarySongs, setLibrarySongs] = useState([]);
   const [searchFilter, setSearchFilter] = useState('');
-  const [loading, setLoading] = useState(false);
 
   const playlist = playlists.find(p => p.id === Number(id));
-
-  const loadLibrary = useCallback(async () => {
-    setLoading(true);
-    try {
-      const res = await fetch(`${API_BASE}/library.php`);
-      const data = await res.json();
-      if (data.songs) {
-        setLibrarySongs(data.songs.map(s => ({
-          ...s,
-          url: `/tunebox/${s.file}`,
-          cover: null,
-          source: 'youtube',
-        })));
-      }
-    } catch (e) {
-      console.error('Failed to load library:', e);
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
-  const openAddModal = () => {
-    setShowAddModal(true);
-    loadLibrary();
-  };
 
   if (!playlist) {
     return (
@@ -54,7 +25,7 @@ function PlaylistDetail() {
     return playlist.songs.some(s => s.url === songUrl);
   };
 
-  const filteredSongs = librarySongs.filter(s =>
+  const filteredSongs = library.filter(s =>
     s.title.toLowerCase().includes(searchFilter.toLowerCase())
   );
 
@@ -74,7 +45,7 @@ function PlaylistDetail() {
           </p>
         </div>
         <div style={{ marginLeft: 'auto', display: 'flex', gap: 8 }}>
-          <button className="btn btn-secondary" onClick={openAddModal} style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+          <button className="btn btn-secondary" onClick={() => setShowAddModal(true)} style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
             <IoAdd /> Add Songs
           </button>
           {playlist.songs.length > 0 && (
@@ -137,7 +108,6 @@ function PlaylistDetail() {
           >
             <h3>Add Songs to "{playlist.name}"</h3>
 
-            {/* Search filter */}
             <div style={{ position: 'relative', marginBottom: 12 }}>
               <IoSearch style={{ position: 'absolute', left: 12, top: 11, color: 'var(--text-muted)', fontSize: 16 }} />
               <input
@@ -150,13 +120,10 @@ function PlaylistDetail() {
               />
             </div>
 
-            {/* Song list */}
             <div style={{ overflowY: 'auto', flex: 1, marginBottom: 16 }}>
-              {loading ? (
-                <p style={{ color: 'var(--text-secondary)', textAlign: 'center', padding: 20 }}>Loading...</p>
-              ) : filteredSongs.length === 0 ? (
+              {filteredSongs.length === 0 ? (
                 <p style={{ color: 'var(--text-secondary)', textAlign: 'center', padding: 20 }}>
-                  {librarySongs.length === 0 ? 'No songs in library. Download some from YouTube first!' : 'No matching songs'}
+                  {library.length === 0 ? 'Play some songs first to build your library!' : 'No matching songs'}
                 </p>
               ) : (
                 <ul className="song-list">
@@ -167,16 +134,13 @@ function PlaylistDetail() {
                         key={song.id}
                         className="song-item"
                         onClick={() => {
-                          if (!added) {
-                            addToPlaylist(playlist.id, song);
-                          } else {
-                            removeFromPlaylist(playlist.id, song.url);
-                          }
+                          if (!added) addToPlaylist(playlist.id, song);
+                          else removeFromPlaylist(playlist.id, song.url);
                         }}
                         style={{ cursor: 'pointer' }}
                       >
                         <div className="song-item-art">
-                          <IoMusicalNotes className="icon" />
+                          {song.cover ? <img src={song.cover} alt="" /> : <IoMusicalNotes className="icon" />}
                         </div>
                         <div className="song-item-info">
                           <div className="song-item-title">{song.title}</div>

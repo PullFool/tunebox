@@ -1,76 +1,70 @@
 import React, { useState } from 'react';
 import { usePlayer } from '../context/PlayerContext';
+import { searchYouTube, getAudioStream } from '../api/youtube';
 import { IoSearch, IoDownload, IoMusicalNotes, IoPlay, IoClose, IoPause } from 'react-icons/io5';
-
-const API_BASE = '/tunebox/api';
 
 function YouTube() {
   const { playSong, currentSong, isPlaying, downloadProgress, setDownloadProgress } = usePlayer();
   const [query, setQuery] = useState('');
   const [results, setResults] = useState([]);
   const [searching, setSearching] = useState(false);
-  const [downloadedSongs, setDownloadedSongs] = useState([]);
   const [error, setError] = useState('');
   const [playingVideoId, setPlayingVideoId] = useState(null);
+  const [streamedSongs, setStreamedSongs] = useState([]);
 
   const search = async () => {
     if (!query.trim()) return;
     setSearching(true);
     setError('');
     try {
-      const res = await fetch(`${API_BASE}/search.php?q=${encodeURIComponent(query)}`);
-      const data = await res.json();
-      if (data.error) {
-        setError(data.error);
-        setResults([]);
-      } else {
-        setResults(data.results || []);
-      }
+      const data = await searchYouTube(query);
+      setResults(data);
+      if (data.length === 0) setError('No results found');
     } catch (e) {
-      setError('Search failed. Make sure XAMPP/Apache is running.');
+      setError(e.message || 'Search failed');
     } finally {
       setSearching(false);
     }
   };
 
-  const download = async (video) => {
-    setDownloadProgress({ title: video.title, percent: 0, status: 'Starting...' });
+  const playFromYouTube = async (video) => {
+    setDownloadProgress({ title: video.title, percent: 0, status: 'Getting audio stream...' });
     try {
-      const res = await fetch(`${API_BASE}/download.php`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ url: video.url, title: video.title }),
-      });
-      const data = await res.json();
-      if (data.error) {
-        setError(data.error);
-      } else {
+      const stream = await getAudioStream(video.id);
+      if (stream) {
         const song = {
-          id: `yt-${Date.now()}`,
-          title: data.title || video.title,
-          artist: video.channel || 'YouTube',
-          url: `${API_BASE}/../${data.file}`,
+          id: `yt-${video.id}`,
+          title: stream.title || video.title,
+          artist: stream.author || video.channel,
+          url: stream.url,
           cover: video.thumbnail,
-          source: 'youtube',
+          source: 'youtube-stream',
         };
-        setDownloadedSongs(prev => [song, ...prev]);
+        setStreamedSongs(prev => {
+          const exists = prev.find(s => s.id === song.id);
+          if (exists) return prev;
+          return [song, ...prev];
+        });
+        // Play the song
+        const allSongs = [song, ...streamedSongs.filter(s => s.id !== song.id)];
+        playSong(allSongs, 0);
+      } else {
+        setError('Could not get audio stream. Try the YouTube player instead.');
       }
     } catch (e) {
-      setError('Download failed: ' + e.message);
+      setError('Stream failed: ' + e.message);
     } finally {
       setDownloadProgress(null);
     }
   };
 
-  const togglePlay = (videoId) => {
+  const toggleVideoPlayer = (videoId) => {
     if (playingVideoId === videoId) {
       setPlayingVideoId(null);
     } else {
       setPlayingVideoId(videoId);
     }
   };
-
-  const allSongs = downloadedSongs;
 
   return (
     <div className="page">
@@ -96,7 +90,7 @@ function YouTube() {
           className="btn btn-primary"
           style={{ borderRadius: 20, display: 'flex', alignItems: 'center', gap: 6 }}
         >
-          <IoSearch /> {searching ? 'Searching...' : 'Search'}
+          <IoSearch /> {searching ? '...' : 'Search'}
         </button>
       </div>
 
@@ -106,18 +100,15 @@ function YouTube() {
         </div>
       )}
 
-      {/* Download progress */}
+      {/* Loading */}
       {downloadProgress && (
         <div className="download-toast">
           <div className="title">{downloadProgress.title}</div>
-          <div className="progress-bar">
-            <div className="progress-fill" style={{ width: `${downloadProgress.percent}%` }} />
-          </div>
-          <div className="status">{downloadProgress.status || 'Downloading...'}</div>
+          <div className="status">{downloadProgress.status || 'Loading...'}</div>
         </div>
       )}
 
-      {/* YouTube Player */}
+      {/* YouTube Embedded Player */}
       {playingVideoId && (
         <div style={{
           position: 'relative', marginBottom: 20, borderRadius: 12,
@@ -154,9 +145,9 @@ function YouTube() {
           <ul className="song-list" style={{ marginBottom: 32 }}>
             {results.map((video, i) => (
               <li key={video.id || i} className="song-item" style={{ gap: 10 }}>
-                {/* Thumbnail - click to play */}
+                {/* Thumbnail - click to play video */}
                 <div
-                  onClick={() => togglePlay(video.id)}
+                  onClick={() => toggleVideoPlayer(video.id)}
                   style={{
                     width: 48, height: 48, borderRadius: 6, flexShrink: 0,
                     overflow: 'hidden', position: 'relative', cursor: 'pointer',
@@ -169,12 +160,10 @@ function YouTube() {
                       <IoMusicalNotes style={{ color: 'var(--text-muted)' }} />
                     </div>
                   )}
-                  {/* Play overlay */}
                   <div style={{
                     position: 'absolute', top: 0, left: 0, right: 0, bottom: 0,
                     background: playingVideoId === video.id ? 'rgba(29,185,84,0.7)' : 'rgba(0,0,0,0.4)',
                     display: 'flex', alignItems: 'center', justifyContent: 'center',
-                    transition: 'background 0.2s',
                   }}>
                     {playingVideoId === video.id ? (
                       <IoPause style={{ color: '#fff', fontSize: 20 }} />
@@ -184,29 +173,27 @@ function YouTube() {
                   </div>
                 </div>
 
-                {/* Info - click to play */}
+                {/* Info - click to stream audio */}
                 <div
                   className="song-item-info"
-                  onClick={() => togglePlay(video.id)}
+                  onClick={() => playFromYouTube(video)}
                   style={{ cursor: 'pointer' }}
                 >
                   <div className="song-item-title">{video.title}</div>
                   <div className="song-item-artist">{video.channel} • {video.duration}</div>
                 </div>
 
-                {/* Download button */}
+                {/* Stream as audio button */}
                 <button
-                  onClick={() => download(video)}
-                  disabled={downloadProgress !== null}
+                  onClick={() => playFromYouTube(video)}
                   style={{
                     background: 'var(--green)', color: '#000', border: 'none',
                     borderRadius: 20, padding: '6px 14px', cursor: 'pointer',
                     display: 'flex', alignItems: 'center', gap: 4,
                     fontSize: 12, fontWeight: 600, flexShrink: 0,
-                    opacity: downloadProgress ? 0.5 : 1,
                   }}
                 >
-                  <IoDownload /> MP3
+                  <IoPlay /> Play
                 </button>
               </li>
             ))}
@@ -214,16 +201,16 @@ function YouTube() {
         </>
       )}
 
-      {/* Downloaded Songs */}
-      {allSongs.length > 0 && (
+      {/* Recently Streamed */}
+      {streamedSongs.length > 0 && (
         <>
-          <h2 style={{ fontSize: 18, marginBottom: 12, fontWeight: 600 }}>Downloaded</h2>
+          <h2 style={{ fontSize: 18, marginBottom: 12, fontWeight: 600 }}>Recently Played</h2>
           <ul className="song-list">
-            {allSongs.map((song, index) => (
+            {streamedSongs.map((song, index) => (
               <li
                 key={song.id}
                 className={`song-item ${currentSong?.url === song.url ? 'active' : ''}`}
-                onClick={() => playSong(allSongs, index)}
+                onClick={() => playSong(streamedSongs, index)}
               >
                 <span className="song-item-number">
                   {currentSong?.url === song.url && isPlaying ? (
@@ -245,11 +232,11 @@ function YouTube() {
         </>
       )}
 
-      {results.length === 0 && allSongs.length === 0 && !searching && (
+      {results.length === 0 && streamedSongs.length === 0 && !searching && (
         <div className="empty-state">
           <IoSearch className="icon" />
           <h3>Search YouTube</h3>
-          <p>Find music and download as MP3</p>
+          <p>Find and play music directly</p>
         </div>
       )}
     </div>

@@ -21,6 +21,7 @@ export function PlayerProvider({ children }) {
     return saved ? JSON.parse(saved) : [];
   });
   const [downloadProgress, setDownloadProgress] = useState(null);
+  const [library, setLibrary] = useState([]);
 
   const audioRef = useRef(new Audio());
 
@@ -64,6 +65,13 @@ export function PlayerProvider({ children }) {
     };
   }, [repeat]);
 
+  const addToLibrary = useCallback((song) => {
+    setLibrary(prev => {
+      if (prev.find(s => s.id === song.id)) return prev;
+      return [...prev, song];
+    });
+  }, []);
+
   const playSong = useCallback((songList, index) => {
     setSongs(songList);
     setCurrentIndex(index);
@@ -71,8 +79,9 @@ export function PlayerProvider({ children }) {
     if (song) {
       audioRef.current.src = song.url;
       audioRef.current.play().catch(() => {});
+      addToLibrary(song);
     }
-  }, []);
+  }, [addToLibrary]);
 
   const togglePlayPause = useCallback(() => {
     if (audioRef.current.src) {
@@ -157,11 +166,11 @@ export function PlayerProvider({ children }) {
 
   const value = {
     songs, currentSong, currentIndex, isPlaying, currentTime, duration,
-    volume, shuffle, repeat, showNowPlaying, playlists, downloadProgress,
+    volume, shuffle, repeat, showNowPlaying, playlists, downloadProgress, library,
     playSong, togglePlayPause, skipNext, skipPrev, seekTo,
     setVolumeLevel, toggleShuffle, toggleRepeat,
     setShowNowPlaying, createPlaylist, addToPlaylist, removeFromPlaylist,
-    deletePlaylist, setDownloadProgress, setSongs,
+    deletePlaylist, setDownloadProgress, setSongs, addToLibrary,
   };
 
   return (
